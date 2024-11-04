@@ -4,6 +4,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR;
+using Newtonsoft.Json;
+using OKXKripto.Models;
 
 public class WebSocketService
 {
@@ -25,12 +27,31 @@ public class WebSocketService
         {
             await _client.ConnectAsync(new Uri(uri), CancellationToken.None);
             Console.WriteLine("WebSocket bağlantısı sağlandı.");
+            await SendMessage("BTC-USDT");
+            await SendMessage("ETH-USDT");
+            await SendMessage("XRP-USDT");
+            await SendMessage("BNB-USDT");
+            await SendMessage("SOL-USDT");
             _ = ReceiveMessagesAsync(); // Mesajları almak için arka planda çalışacak
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Bağlantı hatası: {ex.Message}");
         }
+    }
+    public async Task SendMessage(string currency)
+    {
+        var subscribeMessage = new
+        {
+            op = "subscribe",
+            args = new[]
+            {
+                new {channel = "tickers", instId= currency }
+            }
+        };
+        var messageJson = JsonConvert.SerializeObject(subscribeMessage);
+        var messageBytes = Encoding.UTF8.GetBytes(messageJson);
+        await _client.SendAsync(new ArraySegment<byte>(messageBytes), WebSocketMessageType.Text, true, CancellationToken.None);
     }
 
     private async Task ReceiveMessagesAsync()
@@ -41,15 +62,12 @@ public class WebSocketService
             try
             {
                 var result = await _client.ReceiveAsync(new ArraySegment<byte>(buffer), _cancellationTokenSource.Token);
-                if (result.MessageType == WebSocketMessageType.Close)
+                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                var OKXObject = JsonConvert.DeserializeObject<CurrencyModel.OkxTickerResponse>(message);
+
+                if (OKXObject != null && OKXObject.Data != null)
                 {
-                    await _client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                }
-                else if (result.MessageType == WebSocketMessageType.Text)
-                {
-                    var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    Console.WriteLine($"Mesaj alındı: {message}");
-                    await _hubContext.Clients.All.SendAsync("ReceivePriceUpdate", message);
+                    await _hubContext.Clients.All.SendAsync("ReceivePriceUpdate", OKXObject.Data[0]);
                 }
             }
             catch (Exception ex)
@@ -59,19 +77,7 @@ public class WebSocketService
         }
     }
 
-    public async Task SendMessageAsync(string message)
-    {
-        if (_client.State == WebSocketState.Open)
-        {
-            var bytes = Encoding.UTF8.GetBytes(message);
-            await _client.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            Console.WriteLine($"Mesaj gönderildi: {message}");
-        }
-        else
-        {
-            Console.WriteLine("WebSocket bağlantısı açık değil.");
-        }
-    }
+
 
     public async Task DisconnectAsync()
     {

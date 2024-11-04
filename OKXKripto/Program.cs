@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using OKXKripto.BacgroundService;
 using OKXKripto.Services;
 using System.Text;
 
@@ -16,6 +18,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 // builder.Services.AddSingleton<OkxWebSocketService>();
 builder.Services.AddSingleton<WebSocketService>(); // WebSocket service registration
 builder.Services.AddSingleton<PriceHub>();
+builder.Services.AddHostedService<WebSocketBackgroundService>();
 builder.Services.AddHttpClient();
 // Configure JWT authentication
 builder.Services.AddAuthentication(options =>
@@ -32,7 +35,10 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes("BuradaCokGizliBirAnahtarKeyYazili")), // Use a secure key
         ValidateIssuer = false,
-        ValidateAudience = false
+        ValidateAudience = false,
+        RequireExpirationTime = true,
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero
     };
 });
 
@@ -47,7 +53,45 @@ builder.Services.AddCors(options =>
                .AllowCredentials(); // Bu ayar ile kimlik bilgileri (cookies, http authentication) gönderilebilir.
     });
 });
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.CustomSchemaIds(type => type.ToString());
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Version = "v1",
+        Title = "OKX",
+        Description = "",
+       
+    });
 
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Use 'Bearer' before Token! (Example: 'Bearer 12345abcdef')",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+{
+    {
+        new OpenApiSecurityScheme
+        {
+            Reference = new OpenApiReference
+            {
+                Type = ReferenceType.SecurityScheme,
+                Id = "Bearer"
+            },
+            Name="Bearer",
+            Scheme="Bearer"
+        },
+        Array.Empty<string>()
+    }
+});
+    options.CustomSchemaIds(s => s.FullName.Replace("+", "."));
+});
 var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
